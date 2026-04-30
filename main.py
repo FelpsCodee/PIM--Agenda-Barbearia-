@@ -1,9 +1,21 @@
-from fastapi import FastAPI, HTTPException
+
+from fastapi.middleware.cors import CORSMiddleware
 import sqlite3
-from models import AgendamentoRequest, ServicoResponse, Cliente
+from models import AgendamentoRequest 
+from datetime import date
+from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException
 
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], 
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 def get_db_connection():
     conn = sqlite3.connect('barbearia.db')
@@ -11,107 +23,57 @@ def get_db_connection():
     return conn
 
 @app.get("/")
-def home():
-    return {"voce esta na home": "Bem-vindo à API da Barbearia!"}
+async def read_index():
+    return FileResponse('index.html')
 
 @app.get("/servicos")
 def listar_servicos():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    servicos = cursor.execute('SELECT * FROM servicos').fetchall()
-    conn.close()
-    return {"serviços": servicos}   
-
-@app.post("/agendar")
-async def criar_agendamento(agendamento: AgendamentoRequest):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute(
-        "SELECT id_agendamento FROM agendamentos WHERE data_agendamento = ?", 
-        (agendamento.data_agendamento,)
-    )
-    resultado = cursor.fetchone()
-    if resultado:
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        servicos = cursor.execute('SELECT * FROM servicos').fetchall()
         conn.close()
-        
-        raise HTTPException(status_code=400, detail="Este horário já está preenchido.")
-        
-    cursor.execute(
-            "INSERT INTO agendamentos (id_cliente, id_servico, data_agendamento) VALUES (?, ?, ?)",
-            (agendamento.id_cliente, agendamento.id_servico, agendamento.data_agendamento)
-        )
-    conn.commit()
-    return {
-    "status": "sucesso",
-    "message": "Agendamento criado com sucesso!",
-    "detalhes": {
-        "id_cliente": agendamento.id_cliente,
-        "id_servico": agendamento.id_servico,
-        "data": agendamento.data_agendamento
-    }
-}
-    
-@app.get("/clientes")
-def listar_clientes():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    clientes = cursor.execute('SELECT * FROM clientes').fetchall()
-    conn.close()
-    return {"clientes": clientes}
+        return {"servicos": [dict(row) for row in servicos]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/horarios-disponiveis")
-def listar_horarios_disponiveis(data:str):
-     
-    horarios_cortes = ["09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"]
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    agendados = cursor.execute("SELECT data_agendamento FROM agendamentos WHERE data_agendamento LIKE ?", (f"{data}%",) ).fetchall()
-    conn.close()
-    
-    horas_ocupadas = [row['data_agendamento'].split(" ")[1] for row in agendados]
-    disponiveis = [h for h in horarios_cortes if h not in horas_ocupadas]
-    return {"data": data, "horarios_livres": disponiveis}
+def listar_horarios_disponiveis(data: date):
+    try:
+        data_str = data.isoformat()
+        horarios_padrao = ["09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"]
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        agendados = cursor.execute("SELECT data_agendamento FROM agendamentos WHERE data_agendamento LIKE ?", (f"{data_str}%",)).fetchall()
+        conn.close()
+        horas_ocupadas = [row['data_agendamento'].split(" ")[1] for row in agendados if " " in row['data_agendamento']]
+        disponiveis = [h for h in horarios_padrao if h not in horas_ocupadas]
+        return {"data": data_str, "horarios_livres": disponiveis}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-
-@app.get("/servico/{id_servico}")
-def obter_servico(id_servico: int):
+@app.post("/agendar")
+async def criar_agendamento(req: AgendamentoRequest):
+    if len(req.data_agendamento.strip()) < 16:
+        raise HTTPException(status_code=400, detail="Selecione data e horário.")
     conn = get_db_connection()
-    cursor = conn.cursor()
-    servico = cursor.execute("SELECT * FROM servicos WHERE id_servico = ?", (id_servico,)).fetchone()
-    conn.close()
-    
-    if servico is None:
-        raise HTTPException(status_code=404, detail="Serviço não encontrado.")
-    
-    return ServicoResponse(
-        id_servico=servico['id_servico'],
-        nome=servico['nome'],
-        descricao=servico['descricao'],
-        preco=servico['preco']
-    )
-    
-@app.get("/meus-agendamentos/{id_cliente}")
-def listar_agendamentos_cliente(id_cliente: int):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # Tecnicamente: Selecionamos colunas de 'a' (agendamentos) e 's' (servicos)
-    query = """
-        SELECT a.data_agendamento, s.nome, s.preco
-        FROM agendamentos AS a
-        INNER JOIN servicos AS s ON a.id_servico = s.id_servico
-        WHERE a.id_cliente = ?
-        ORDER BY a.data_agendamento DESC
-    """
-    
-    agendamentos = cursor.execute(query, (id_cliente,)).fetchall()
-    conn.close()
-    
-    if not agendamentos:
-        return {"mensagem": "Nenhum agendamento encontrado.", "id_cliente": id_cliente}
-
-    return {
-        "id_cliente": id_cliente,
-        "agendamentos": [dict(row) for row in agendamentos]
-    }
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id_cliente FROM clientes WHERE email = ?", (req.email_cliente,))
+        cliente = cursor.fetchone()
+        if not cliente:
+            cursor.execute("INSERT INTO clientes (nome, email, telefone) VALUES (?, ?, ?)", (req.nome_cliente, req.email_cliente, req.telefone_cliente))
+            id_cliente = cursor.lastrowid
+        else:
+            id_cliente = cliente['id_cliente']
+        cursor.execute("SELECT id_agendamento FROM agendamentos WHERE data_agendamento = ?", (req.data_agendamento,))
+        if cursor.fetchone():
+            raise HTTPException(status_code=400, detail="Horário ocupado.")
+        cursor.execute("INSERT INTO agendamentos (id_cliente, id_servico, data_agendamento) VALUES (?, ?, ?)", (id_cliente, req.id_servico, req.data_agendamento))
+        conn.commit() 
+        return {"status": "sucesso", "message": "Agendamento confirmado!"}
+    except Exception as e:
+        conn.rollback() 
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
