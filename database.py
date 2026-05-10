@@ -39,13 +39,22 @@ def criar_banco_e_tabelas():
         return
     
 
-    # Popular serviços base se a tabela estiver vazia
+
     cursor.execute("SELECT COUNT(*) FROM servicos")
     if cursor.fetchone()[0] == 0:
-        cursor.execute("INSERT INTO servicos (nome, descricao, preco) VALUES (?, ?, ?)", 
-                       ('Corte Degradê', 'Corte moderno com sombreado', 45.00))
-        cursor.execute("INSERT INTO servicos (nome, descricao, preco) VALUES (?, ?, ?)", 
-                       ('Barba Completa', 'Aparagem e hidratação', 30.00))
+        servicos_iniciais = [
+            ('Corte Degradê', 'Corte moderno com sombreado', 45.00),
+            ('Corte Social', 'Corte classico com detalhes', 30.00),
+            ('Corte Infantil', 'Corte para crianças até 4 anos', 28.00),
+            ('Barba Completa', 'Aparagem e hidratação', 30.00),
+            ('Pezinho', 'Definição e limpeza', 12.00),
+            ('Combo Corte + Barba', 'Corte Completo + Barba Completa', 50.00),
+            ('Pigmentacao', 'Coloração para disfarçar os fios brancos', 25.00)
+        ]
+        cursor.executemany(
+            "INSERT INTO servicos (nome, descricao, preco) VALUES (?, ?, ?)",
+            servicos_iniciais
+        )
     
     conexao.commit()
     conexao.close()

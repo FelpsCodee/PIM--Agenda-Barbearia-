@@ -6,7 +6,6 @@ from datetime import date
 from fastapi.responses import FileResponse
 from fastapi import FastAPI, HTTPException
 
-
 app = FastAPI()
 
 app.add_middleware(
@@ -22,9 +21,11 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row 
     return conn
 
+
 @app.get("/")
 async def read_index():
     return FileResponse('index.html')
+
 
 @app.get("/servicos")
 def listar_servicos():
@@ -41,7 +42,7 @@ def listar_servicos():
 def listar_horarios_disponiveis(data: date):
     try:
         data_str = data.isoformat()
-        horarios_padrao = ["09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"]
+        horarios_padrao = ["09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00"]
         conn = get_db_connection()
         cursor = conn.cursor()
         agendados = cursor.execute("SELECT data_agendamento FROM agendamentos WHERE data_agendamento LIKE ?", (f"{data_str}%",)).fetchall()
@@ -51,6 +52,7 @@ def listar_horarios_disponiveis(data: date):
         return {"data": data_str, "horarios_livres": disponiveis}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/agendar")
 async def criar_agendamento(req: AgendamentoRequest):
@@ -77,3 +79,4 @@ async def criar_agendamento(req: AgendamentoRequest):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
+        
